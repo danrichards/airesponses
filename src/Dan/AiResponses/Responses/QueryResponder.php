@@ -20,7 +20,7 @@ class QueryResponder extends AiResponder
 {
 
     /**
-     * @var array DOMQuery $queued
+     * @var array DataPointQuery $queued
      */
     protected $queued = null;
 
