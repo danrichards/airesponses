@@ -44,7 +44,7 @@ class AiResponder {
      */
     public function json()
     {
-
+        return json_encode($this->data);
     }
 
     /**
@@ -52,7 +52,7 @@ class AiResponder {
      */
     public function arrays()
     {
-
+        return json_decode(json_encode($this->data), true);
     }
 
     /**

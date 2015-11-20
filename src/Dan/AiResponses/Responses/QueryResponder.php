@@ -2,14 +2,15 @@
 
 namespace Dan\AiResponses;
 
+use Closure;
 use Dan\AiCrawler\AiCrawler;
 
 /**
  * Class QueryResponder
  *
- * If you need to query several items with the same $node, you can do so more
- * efficiently with start() and commit(). This will run all your queries with
- * a one complete bread-first pass.
+ * If you need to query several items with the same $node, you can do so with
+ * one DOM traversal using start() and commit(). This will run all your queries
+ * with bread-first pass.
  *
  * @see https://danrichards.gitbooks.io/aicrawler/content/AiCrawler/scorable.html
  * @see https://danrichards.gitbooks.io/aicrawler/content/AiResponses/index.html
@@ -20,18 +21,24 @@ class QueryResponder extends AiResponder
 {
 
     /**
+     * Special ordering scenarios commit() will handle.
+     */
+    const QUERY_RESPONDER_FIRST = "@QUERY_RESPONDER_FIRST";
+    const QUERY_RESPONDER_LAST = "@QUERY_RESPONDER_LAST";
+    const QUERY_RESPONDER_MIN = "@QUERY_RESPONDER_MIN";
+    const QUERY_RESPONDER_MAX = "@QUERY_RESPONDER_MAX";
+
+    /**
      * @var array DataPointQuery $queued
      */
     protected $queued = null;
 
     /**
-     * @var DOMQuery $current
+     * @var DataPointQuery $current
      */
     protected $current = null;
 
     /**
-     * AiResponder constructor.
-     *
      * @param AiCrawler $node
      */
     public function __construct(AiCrawler $node = null)
@@ -40,7 +47,7 @@ class QueryResponder extends AiResponder
     }
 
     /**
-     * Reset the AiResponder
+     * Reset the Responder
      *
      * @param AiCrawler $node
      * @return $this
@@ -82,8 +89,14 @@ class QueryResponder extends AiResponder
      */
     public function commit($clearData = true, $clearQueued = true)
     {
-        foreach ($this->queued as $query) {
-            $this->data[$query->getFrom()] = $query->execute();
+        self::bfs($this->node);
+
+        /**
+         * Now we have complete data sets for each item. Order and limit them.
+         */
+        foreach($this->queued as $query) {
+            $this->handleOrder($query);
+            $this->handleLimit($query);
         }
 
         if ($clearQueued) {
@@ -97,6 +110,49 @@ class QueryResponder extends AiResponder
         } else {
             return $this->data;
         }
+    }
+
+    /**
+     * Use Bread-First Search to analyze and gather data.
+     *
+     * @param AiCrawler $node
+     */
+    protected function bfs(AiCrawler &$node)
+    {
+        foreach ($this->queued as $query) {
+            $record = $query->execute($node);
+            if (! empty($record)) {
+                $this->data[$query->getFrom()][] = $record;
+            }
+        }
+
+        $node->children()->each(function ($n) {
+            if ($n) {
+                self::bfs($n);
+            }
+        });
+    }
+
+    /**
+     * The node isn't stored in $this->data, so you must order by one of the
+     * items we selected with select(). Items that do not contain a data point
+     * in provided in order clause come last.
+     *
+     * @param DataPointQuery $query
+     */
+    protected function handleOrder(DataPointQuery $query)
+    {
+        // todo sort $this->data[$query->getFrom()] by suggested order.
+        // probably a switch (select column) with uasort callback for each case.
+        // use QUERY_RESPONDER_FIRST, LAST, MIN, MAX constants as necessary.
+    }
+
+    /**
+     * @param DataPointQuery $query
+     */
+    protected function handleLimit(DataPointQuery $query)
+    {
+        // todo limit $this->data[$query->getFrom()] by suggested order.
     }
 
     /**
@@ -137,10 +193,14 @@ class QueryResponder extends AiResponder
      */
     public function where($mixed, $sign = ">=", $value = 1)
     {
+        if ($mixed instanceof Closure) {
+            $this->current->addWhere($mixed);
+            return $this;
+        }
         $this->current = $this->current ?: new DataPointQuery();
-        $this->current->addWhere((object) [
+        $this->current->addWhere([
             'mixed' => $mixed,
-            'sign' => $sign,
+            'operator' => $sign,
             'value' => $value
         ]);
         return $this;
@@ -229,7 +289,7 @@ class QueryResponder extends AiResponder
      */
     public function first($dataPoint)
     {
-        // todo: write first implementation, returns get()
+        // todo: write separate more efficient implementation.
     }
 
     /**
@@ -241,7 +301,7 @@ class QueryResponder extends AiResponder
      */
     public function last($dataPoint)
     {
-        // todo: write last implementation, returns get()
+        // todo: use limit(1), order('last'), commit()
     }
 
     /**
